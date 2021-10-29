@@ -1,0 +1,29 @@
+version: "3.7"
+
+services:
+
+  api:
+    build: .
+    image: topic-tool-api:latest
+    ports:
+      - "3000:3000"
+    depends_on:
+      - db
+    networks:
+      - net
+    environment:
+      - DB_HOST=db
+      - DB_PORT=27017
+
+  db:
+    image: mongo:bionic
+    volumes:
+      - db-data:/data/db
+    networks:
+      - net
+
+volumes:
+  db-data:
+
+networks:
+  net:

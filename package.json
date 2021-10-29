@@ -1,0 +1,45 @@
+{
+  "name": "topic-tool-api",
+  "version": "1.0.0",
+  "description": "The API for a tool for managing topic lists for an upcoming meeting",
+  "main": "index.js",
+  "scripts": {
+    "serve": "node build/index.js",
+    "serve-debug": "node --inspect=0.0.0.0 build/index.js",
+    "watch": "tsc-watch --onSuccess \"npm run serve-debug\"",
+    "build": "tsc",
+    "lint": "eslint \"src/**\""
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "koa": "^2.13.1",
+    "koa-body": "^4.2.0",
+    "koa-compose": "^4.1.0",
+    "koa-compress": "^5.0.1",
+    "koa-cors": "^0.0.16",
+    "koa-logger": "^3.2.1",
+    "koa-router": "^10.0.0",
+    "mongoose": "^5.13.3",
+    "nodemailer": "^6.6.3",
+    "nodemailer-html-to-text": "^3.2.0",
+    "validator": "^13.6.0"
+  },
+  "devDependencies": {
+    "@types/koa": "^2.13.4",
+    "@types/koa-compose": "^3.2.5",
+    "@types/koa-compress": "^4.0.3",
+    "@types/koa-cors": "^0.0.2",
+    "@types/koa-logger": "^3.1.1",
+    "@types/koa-router": "^7.4.4",
+    "@types/nodemailer": "^6.4.4",
+    "@types/nodemailer-html-to-text": "^3.1.0",
+    "@types/validator": "^13.6.3",
+    "@typescript-eslint/eslint-plugin": "^4.28.4",
+    "@typescript-eslint/parser": "^4.28.4",
+    "eslint": "^7.31.0",
+    "tsc-watch": "^4.4.0",
+    "typescript": "^4.3.5"
+  }
+}

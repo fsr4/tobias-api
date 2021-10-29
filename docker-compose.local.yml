@@ -1,0 +1,15 @@
+version: "3.7"
+
+services:
+
+  api:
+    build:
+      target: build
+    ports:
+      - "9229:9229"
+    volumes:
+      - .:/app
+
+  db:
+    ports:
+      - "27017:27017"

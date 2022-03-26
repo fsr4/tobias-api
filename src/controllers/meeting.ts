@@ -45,6 +45,6 @@ export class MeetingController {
         const topics = await Topics.find({ meeting: meeting._id }).populate("parent").sort("position");
         const mail = new Invitation(meeting.dateTime, topics);
         // TODO: Make receiver a parameter
-        await mail.send("");
+        await mail.send("lotteunckell@gmail.com");
     }
 }

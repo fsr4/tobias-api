@@ -5,7 +5,15 @@
     <title>{{subject}}</title>
     <style>
         ol {
-            list-style: none;
+            counter-reset: item;
+            padding-left: 2em;
+        }
+        ol li {
+            display: block;
+        }
+        ol li:before {
+            content: counters(item, ".") " ";
+            counter-increment: item;
         }
 
         .signature {

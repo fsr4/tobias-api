@@ -21,7 +21,7 @@
     "koa-cors": "^0.0.16",
     "koa-logger": "^3.2.1",
     "koa-router": "^10.0.0",
-    "mongoose": "^5.13.3",
+    "mongoose": "^5.13.15",
     "nodemailer": "^6.6.3",
     "nodemailer-html-to-text": "^3.2.0",
     "validator": "^13.7.0"

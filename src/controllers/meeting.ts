@@ -1,5 +1,5 @@
 import Meetings, { Meeting } from "../models/meeting";
-import { NotFound } from "../util/errors";
+import { NotFound } from "../util/errors/http-errors";
 import Topics from "../models/topic";
 import { Invitation } from "../mail/invitation";
 
@@ -17,7 +17,7 @@ export class MeetingController {
 
     async create(dateTime: string): Promise<Meeting> {
         return Meetings.create({
-            dateTime: new Date(dateTime)
+            dateTime: new Date(dateTime),
         });
     }
 
@@ -42,9 +42,9 @@ export class MeetingController {
         const meeting = await Meetings.findById(id).lean();
         if (!meeting)
             throw new NotFound(`Meeting with id ${id} not found`);
-        const topics = await Topics.find({ meeting: meeting._id }).populate("parent").sort("position");
+        const topics = await Topics.find({ meeting: meeting._id }).lean();
         const mail = new Invitation(meeting.dateTime, topics);
         // TODO: Make receiver a parameter
-        await mail.send("lotteunckell@gmail.com");
+        await mail.send("test@kaes3kuch3n.de");
     }
 }

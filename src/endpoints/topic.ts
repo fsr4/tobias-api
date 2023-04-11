@@ -4,6 +4,7 @@ import { body, param, query, validate } from "../validation";
 import { DefaultEndpointSet } from "./endpoint-set";
 import { TopicController } from "../controllers/topic";
 import validator from "validator";
+import { Types } from "mongoose";
 
 export class TopicEndpoints extends DefaultEndpointSet<TopicController> {
     list(): Middleware {
@@ -11,7 +12,7 @@ export class TopicEndpoints extends DefaultEndpointSet<TopicController> {
             validate(
                 query("meeting").isMongoId()
             ),
-            ctx => this.controller.list(ctx.request.query.meeting as string)
+            ctx => this.controller.list(new Types.ObjectId(ctx.request.query.meeting as string)),
         ]);
     }
 
@@ -20,16 +21,24 @@ export class TopicEndpoints extends DefaultEndpointSet<TopicController> {
             validate(
                 body("meeting").isMongoId(),
                 body("name").isString(),
-                body("position").optional().isInt(),
-                body("parentTopic").optional().isMongoId()
+                body("parentTopic").optional().isMongoId(),
+                body("insertAfter").optional().isMongoId(),
+                body("insertBefore").optional().isMongoId(),
             ),
             ctx => {
                 const meetingId = ctx.request.body.meeting;
                 const name = ctx.request.body.name;
-                const position = ctx.request.body.position;
-                const parentTopicId = ctx.request.body.parentTopic;
-                return this.controller.create(meetingId, name, position, parentTopicId);
-            }
+                const parentTopicId = ctx.request.body.parentTopic
+                    ? new Types.ObjectId(ctx.request.body.parentTopic)
+                    : undefined;
+                const previousTopicId = ctx.request.body.insertAfter
+                    ? new Types.ObjectId(ctx.request.body.insertAfter)
+                    : undefined;
+                const nextTopicId = ctx.request.body.insertBefore
+                    ? new Types.ObjectId(ctx.request.body.insertBefore)
+                    : undefined;
+                return this.controller.create(meetingId, name, parentTopicId, previousTopicId, nextTopicId);
+            },
         ]);
     }
 
@@ -38,7 +47,7 @@ export class TopicEndpoints extends DefaultEndpointSet<TopicController> {
             validate(
                 param("id").isMongoId()
             ),
-            ctx => this.controller.get(ctx.request.params.id)
+            ctx => this.controller.get(new Types.ObjectId(ctx.request.params.id)),
         ]);
     }
 
@@ -47,20 +56,30 @@ export class TopicEndpoints extends DefaultEndpointSet<TopicController> {
             validate(
                 param("id").isMongoId(),
                 body("name").optional().isString(),
-                body("position").optional().custom((pos) =>
-                    validator.isInt(pos) || pos === "null"
-                ),
                 body("parent").optional().custom((id) =>
                     validator.isMongoId(id) || id === "null"
-                )
+                ),
+                body("insertAfter").optional().custom((id) =>
+                    validator.isMongoId(id) || id === "null"
+                ),
+                body("insertBefore").optional().custom((id) =>
+                    validator.isMongoId(id) || id === "null"
+                ),
             ),
             ctx => {
-                const id = ctx.request.params.id;
+                const id = new Types.ObjectId(ctx.request.params.id);
                 const name = ctx.request.body.name;
-                const position = ctx.request.body.position === "null" ? null : ctx.request.body.position;
-                const parentTopicId = ctx.request.body.parent === "null" ? null : ctx.request.body.parent;
-                return this.controller.edit(id, name, position, parentTopicId);
-            }
+                const parentTopicId = ctx.request.body.parent === "null"
+                    ? null
+                    : ctx.request.body.parent ? new Types.ObjectId(ctx.request.body.parent) : undefined;
+                const previousTopicId = ctx.request.body.insertAfter === "null"
+                    ? null
+                    : ctx.request.body.insertAfter ? new Types.ObjectId(ctx.request.body.insertAfter) : undefined;
+                const nextTopicId = ctx.request.body.insertBefore === "null"
+                    ? null
+                    : ctx.request.body.insertBefore ? new Types.ObjectId(ctx.request.body.insertBefore) : undefined;
+                return this.controller.edit(id, name, parentTopicId, previousTopicId, nextTopicId);
+            },
         ]);
     }
 
@@ -69,7 +88,7 @@ export class TopicEndpoints extends DefaultEndpointSet<TopicController> {
             validate(
                 param("id").isMongoId()
             ),
-            ctx => this.controller.remove(ctx.request.params.id)
+            ctx => this.controller.remove(new Types.ObjectId(ctx.request.params.id)),
         ]);
     }
 
@@ -78,7 +97,7 @@ export class TopicEndpoints extends DefaultEndpointSet<TopicController> {
             validate(
                 query("meeting").isMongoId()
             ),
-            ctx => this.controller.createDefaultTopics(ctx.request.query.meeting as string)
+            ctx => this.controller.createDefaultTopics(new Types.ObjectId(ctx.request.query.meeting as string)),
         ]);
     }
 }

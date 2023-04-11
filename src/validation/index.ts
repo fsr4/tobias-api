@@ -1,6 +1,6 @@
 import { Context, Middleware } from "koa";
 import validator from "validator";
-import { UnprocessableEntity } from "../util/errors";
+import { UnprocessableEntity } from "../util/errors/http-errors";
 import { IS_STRING, OPTIONAL, ValidationChain, ValidationType } from "./chain";
 import { ValidationChain as IValidationChain } from "./chain-interface";
 
@@ -45,7 +45,7 @@ export function validate(...validationChains: IValidationChain[]): Middleware {
                         validationErrors.push({
                             property: validationChain.parameterName,
                             type: validationChain.type,
-                            failedValidation: v
+                            failedValidation: v,
                         });
                     continue;
                 }
@@ -55,7 +55,7 @@ export function validate(...validationChains: IValidationChain[]): Middleware {
                     validationErrors.push({
                         property: validationChain.parameterName,
                         type: validationChain.type,
-                        failedValidation: v
+                        failedValidation: v,
                     });
             }
 

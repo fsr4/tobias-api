@@ -1,181 +1,166 @@
-import { Document, model, Schema, Types } from "mongoose";
+import { Document, model, SaveOptions, Schema, Types } from "mongoose";
 import { Meeting } from "./meeting";
 import { Entity } from "./entity";
-import { LooseObject } from "../util/loose-object";
-import { BadRequest } from "../util/errors";
+import { InvalidDatabaseContentError } from "../util/errors/database-errors";
+
+export type TopicDocument = Topic & Document;
 
 export interface Topic extends Entity {
     meeting: Types.ObjectId | Meeting;
     name: string;
-    position: number | null;
     parent: Types.ObjectId | Topic | null;
+    previous: Types.ObjectId | Topic | null;
+    next: Types.ObjectId | Topic | null;
 
-    updatePosition(position: number | null, parentTopicId?: string | null): Promise<void>;
-    getFullPosition(): Promise<string>;
-    toResponseObject(): Promise<TopicResponse>;
-}
+    insertAsChildOf(parentTopic: TopicDocument, options: SaveOptions): Promise<TopicDocument>;
 
-export interface TopicResponse extends Topic {
-    fullPosition: string;
+    insertAfter(previousTopic: TopicDocument, options: SaveOptions): Promise<TopicDocument>;
+
+    insertBefore(nextTopic: TopicDocument, options: SaveOptions): Promise<TopicDocument>;
+
+    removeFromAgenda(options: SaveOptions): Promise<TopicDocument>;
 }
 
 const topicSchema = new Schema({
     meeting: {
         ref: "Meeting",
         type: Schema.Types.ObjectId,
-        required: true
+        required: true,
     },
     name: {
         type: String,
-        required: true
-    },
-    position: {
-        type: Number,
-        required: false
+        required: true,
     },
     parent: {
         ref: "Topic",
         type: Schema.Types.ObjectId,
         required: false,
-        default: null
-    }
+        default: null,
+    },
+    previous: {
+        ref: "Topic",
+        type: Schema.Types.ObjectId,
+        required: false,
+        default: null,
+    },
+    next: {
+        ref: "Topic",
+        type: Schema.Types.ObjectId,
+        required: false,
+        default: null,
+    },
 }, {
     collection: "topics",
     toJSON: {
-        virtuals: true
-    }
+        virtuals: true,
+    },
 });
 
-topicSchema.methods.updatePosition = async function (position: number | null, parentTopicId?: string | null) {
-    const topic = this as unknown as Topic;
+topicSchema.methods.insertAsChildOf = async function (parentTopic: TopicDocument, options: SaveOptions) {
+    const topic = this as unknown as TopicDocument;
 
-    // If position is set to null (topic removed from list), set parent also to null
-    if (position === null)
-        parentTopicId = null;
+    const subTopics = await Topics.find({ parent: parentTopic._id });
 
-    let parentTopic;
-    if (parentTopicId === undefined) {
-        // parent did not change
-        parentTopic = { _id: undefined };
-    } else if (parentTopicId === null) {
-        // parent removed
-        parentTopic = { _id: null };
-    } else {
-        // parent added
-        parentTopic = await Topics.findById(parentTopicId).lean();
-        if (!parentTopic)
-            throw new BadRequest(`Parent topic with id ${parentTopicId} not found`);
-
-        /*const children = await Topics.find({ parent: topic });
-
-        if (parentTopic.parent || children.length > 0)
-            throw new BadRequest("Max nesting level reached");*/
+    if (subTopics.length !== 0) {
+        // Append topic to existing list of sub topics
+        const lastSubTopic = subTopics.find((topic) => topic.next === null);
+        if (!lastSubTopic)
+            throw new InvalidDatabaseContentError();
+        lastSubTopic.next = topic._id;
+        await lastSubTopic.save(options);
+        topic.previous = lastSubTopic._id;
     }
 
-    const updateQuery: LooseObject = { meeting: topic.meeting };
-    let moveStep = 0;
-
-    if (topic.parent && !parentTopic._id)
-        updateQuery.parent = topic.parent;
-    else if (parentTopic._id)
-        updateQuery.parent = parentTopic._id;
-
-    const parentChanged = parentTopic._id !== undefined;//topic.parent === null && parentTopic._id || topic.parent !== null && parentTopic._id === null || parentTopic._id && !(topic.parent as Topic)._id.equals(parentTopic._id);
-
-    console.debug("Parent: " + (parentChanged ? (topic.parent ? (topic.parent as Topic)._id : "null") + " -> " + parentTopic._id : "not changed"));
-    console.debug("Position: " + topic.position + " -> " + position);
-
-    if (!topic.position) {
-        console.debug("Added");
-        // Topic added to list
-        updateQuery.position = { $gte: position };
-        moveStep = 1;
-    } else if (position === null) {
-        console.debug("Removed");
-        // Topic removed from list
-        updateQuery.position = { $gte: topic.position };
-        moveStep = -1;
-    } else if (!parentChanged && position > topic.position) {
-        console.debug("Moved down");
-        // Topic moved down the list, move up entries in between
-        // find and update all topics between old and new position
-        position--;
-        updateQuery.position = { $gt: topic.position, $lte: position };
-        moveStep = -1;
-    } else if (!parentChanged && position < topic.position) {
-        console.debug("Moved up");
-        // Topic moved up the list, move down entries in between
-        // find and update all topics between old and new position
-        updateQuery.position = { $gte: position, $lt: topic.position };
-        moveStep = 1;
-    } else if (parentTopic._id === null) {
-        console.debug("Moved out");
-        // Topic moved out of sublist
-        // Move all topics behind new position down by one
-        const outerUpdateQuery = { meeting: topic.meeting, parent: parentTopic._id, position: { $gte: position } };
-        console.debug("Moving topics >= " + position + " down");
-        await moveTopics(outerUpdateQuery, 1);
-        // Move all topics behind old position up by one
-        updateQuery.position = { $gt: topic.position };
-        updateQuery.parent = topic.parent;
-        moveStep = -1;
-    } else if (parentTopic._id && !topic.parent) {
-        console.debug("Moved in");
-        // Topic moved into sublist
-        // Move all topics behind old position up by one
-        const outerUpdateQuery = { meeting: topic.meeting, parent: topic.parent, position: { $gt: topic.position } };
-        await moveTopics(outerUpdateQuery, -1);
-        // Move all topics behind new position down by one
-        updateQuery.position = { $gte: position };
-        updateQuery.parent = parentTopic._id;
-        moveStep = 1;
-    } else {
-        throw new Error("Unhandled case D:");
-    }
-
-    await moveTopics(updateQuery, moveStep);
-    topic.position = position;
-    if (parentTopic._id !== undefined)
-        topic.parent = parentTopic._id;
+    topic.parent = parentTopic._id;
+    return await topic.save(options);
 };
 
-/**
- * Moves the topics returned by the query by the specified step size
- * @param query The query for finding topics
- * @param stepSize The number of steps to move the topics
- */
-async function moveTopics(query: LooseObject, stepSize: number): Promise<void> {
-    const topics = await Topics.find(query);
-    const updates = [];
-    for (const t of topics) {
-        t.position = (t.position as number) + stepSize;
-        updates.push(t.save());
-    }
-    await Promise.all(updates);
-}
+topicSchema.methods.insertBefore = async function (nextTopic: TopicDocument, options: SaveOptions) {
+    const topic = this as unknown as TopicDocument;
 
-topicSchema.methods.getFullPosition = async function () {
-    const topic = this as unknown as Topic;
-    let fullPosition = "" + topic.position;
-    let parent = topic.parent;
+    if (nextTopic.previous !== null) {
+        // If inserted between two topics, update prev and next references accordingly
+        topic.previous = nextTopic.previous;
 
-    while (parent) {
-        if (!(parent as Topic).position)
-            parent = await Topics.findOne(parent as Types.ObjectId);
-        fullPosition = (parent as Topic).position + "." + fullPosition;
-        parent = (parent as Topic).parent;
+        const previousTopic = await Topics.findById(nextTopic.previous);
+        if (previousTopic === null)
+            throw new InvalidDatabaseContentError();
+
+        previousTopic.next = topic._id;
+        await previousTopic.save(options);
     }
 
-    return fullPosition;
+    if (nextTopic.parent !== null)
+        topic.parent = nextTopic.parent;
+
+    nextTopic.previous = topic._id;
+    await nextTopic.save(options);
+
+    topic.next = nextTopic._id;
+    return await topic.save(options);
 };
 
-topicSchema.methods.toResponseObject = async function () {
-    const topic = this as unknown as Topic & Document<unknown, unknown, Topic>;
-    const response: TopicResponse = {
-        ...topic.toObject({ depopulate: true, virtuals: true }),
-        fullPosition: await topic.getFullPosition()
-    };
-    return response;
+topicSchema.methods.insertAfter = async function (previousTopic: TopicDocument, options: SaveOptions) {
+    const topic = this as unknown as TopicDocument;
+
+    if (previousTopic.next !== null) {
+        // If inserted between two topics, update prev and next references accordingly
+        topic.next = previousTopic.next;
+
+        const nextTopic = await Topics.findById(previousTopic.next);
+        if (nextTopic === null)
+            throw new InvalidDatabaseContentError();
+
+        nextTopic.previous = topic._id;
+        await nextTopic.save(options);
+    }
+
+    if (previousTopic.parent !== null)
+        topic.parent = previousTopic.parent;
+
+    previousTopic.next = topic._id;
+    await previousTopic.save(options);
+
+    topic.previous = previousTopic._id;
+    return await topic.save(options);
+};
+
+topicSchema.methods.removeFromAgenda = async function (options: SaveOptions) {
+    const topic = this as unknown as TopicDocument;
+
+    topic.parent = null;
+
+    if (topic.previous !== null && topic.next !== null) {
+        // Topic is between two other topics
+        const previousTopic = await Topics.findById(topic.previous);
+        const nextTopic = await Topics.findById(topic.next);
+        if (!previousTopic || !nextTopic)
+            throw new InvalidDatabaseContentError();
+        // Connect previous topic and next topic directly
+        previousTopic.next = nextTopic._id;
+        nextTopic.previous = previousTopic._id;
+        await previousTopic.save(options);
+        await nextTopic.save(options);
+    } else if (topic.previous !== null) {
+        // Topic is last in list, remove "next" reference from previous topic
+        const previousTopic = await Topics.findById(topic.previous);
+        if (!previousTopic)
+            throw new InvalidDatabaseContentError();
+        previousTopic.next = null;
+        await previousTopic.save(options);
+    } else if (topic.next !== null) {
+        // Topic is first in list, remove "previous" reference from next topic
+        const nextTopic = await Topics.findById(topic.next);
+        if (!nextTopic)
+            throw new InvalidDatabaseContentError();
+        nextTopic.previous = null;
+        const updated = await nextTopic.save(options);
+        console.log(updated);
+    }
+
+    topic.previous = null;
+    topic.next = null;
+    return await topic.save(options);
 };
 
 const Topics = model<Topic>("Topic", topicSchema);

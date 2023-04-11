@@ -14,15 +14,15 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "koa": "^2.13.1",
+    "koa": "^2.13.4",
     "koa-body": "^4.2.0",
     "koa-compose": "^4.1.0",
-    "koa-compress": "^5.0.1",
+    "koa-compress": "^5.1.0",
     "koa-cors": "^0.0.16",
     "koa-logger": "^3.2.1",
-    "koa-router": "^10.0.0",
-    "mongoose": "^5.13.3",
-    "nodemailer": "^6.6.3",
+    "koa-router": "^10.1.1",
+    "mongoose": "^6.4.6",
+    "nodemailer": "^6.7.3",
     "nodemailer-html-to-text": "^3.2.0",
     "validator": "^13.7.0"
   },
@@ -31,15 +31,19 @@
     "@types/koa-compose": "^3.2.5",
     "@types/koa-compress": "^4.0.3",
     "@types/koa-cors": "^0.0.2",
-    "@types/koa-logger": "^3.1.1",
+    "@types/koa-logger": "^3.1.2",
     "@types/koa-router": "^7.4.4",
     "@types/nodemailer": "^6.4.4",
     "@types/nodemailer-html-to-text": "^3.1.0",
-    "@types/validator": "^13.6.3",
-    "@typescript-eslint/eslint-plugin": "^4.28.4",
-    "@typescript-eslint/parser": "^4.28.4",
-    "eslint": "^7.31.0",
-    "tsc-watch": "^4.4.0",
-    "typescript": "^4.3.5"
+    "@types/validator": "^13.7.2",
+    "@typescript-eslint/eslint-plugin": "^5.16.0",
+    "@typescript-eslint/parser": "^5.16.0",
+    "eslint": "^8.12.0",
+    "tsc-watch": "^4.6.2",
+    "typescript": "^4.6.3"
+  },
+  "volta": {
+    "node": "16.14.2",
+    "npm": "8.7.0"
   }
 }

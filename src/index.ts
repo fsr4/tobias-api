@@ -7,6 +7,7 @@ import * as koaCors from "koa-cors";
 import { ApiError, NotFound } from "./util/errors/http-errors";
 import { db, port } from "./config";
 import router from "./routes";
+import initSettings from "./util/init-settings";
 
 // Setup database connection
 mongoose.connect(`mongodb://${db.host}:${db.port}/${db.database}`).then(({ connection: c }) => {
@@ -15,6 +16,9 @@ mongoose.connect(`mongodb://${db.host}:${db.port}/${db.database}`).then(({ conne
     console.error("MongoDB connection failed:\n", error);
     process.exit(1);
 });
+
+// Initialize app settings
+initSettings();
 
 // Setup server
 const server = new Koa();

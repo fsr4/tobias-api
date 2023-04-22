@@ -1,6 +1,6 @@
-import { Topic } from "../models/topic";
+import { ITopic } from "../models/interfaces/topic";
 
-function sort(sorted: Topic[], remaining: Topic[]): Topic[] {
+function sort(sorted: ITopic[], remaining: ITopic[]): ITopic[] {
     const nextTopicId = sorted[sorted.length - 1].next;
     if (!nextTopicId) return sorted;
     const nextIndex = remaining.findIndex(topic => topic._id.equals(nextTopicId._id));
@@ -10,6 +10,6 @@ function sort(sorted: Topic[], remaining: Topic[]): Topic[] {
     return sort(sorted, remaining);
 }
 
-export default function sortTopics(head: Topic, topics: Topic[]): Topic[] {
+export default function sortTopics(head: ITopic, topics: ITopic[]): ITopic[] {
     return sort([head], topics);
 }

@@ -21,15 +21,15 @@ export class TopicEndpoints extends DefaultEndpointSet<TopicController> {
             validate(
                 body("meeting").isMongoId(),
                 body("name").isString(),
-                body("parentTopic").optional().isMongoId(),
+                body("parent").optional().isMongoId(),
                 body("insertAfter").optional().isMongoId(),
                 body("insertBefore").optional().isMongoId(),
             ),
             ctx => {
                 const meetingId = ctx.request.body.meeting;
                 const name = ctx.request.body.name;
-                const parentTopicId = ctx.request.body.parentTopic
-                    ? new Types.ObjectId(ctx.request.body.parentTopic)
+                const parentTopicId = ctx.request.body.parent
+                    ? new Types.ObjectId(ctx.request.body.parent)
                     : undefined;
                 const previousTopicId = ctx.request.body.insertAfter
                     ? new Types.ObjectId(ctx.request.body.insertAfter)

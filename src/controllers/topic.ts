@@ -1,19 +1,27 @@
 import { BadRequest, NotFound } from "../util/errors/http-errors";
-import Topics, { Topic, TopicDocument } from "../models/topic";
-import Meetings from "../models/meeting";
+import Meetings, { findMeetingWithTopic, MeetingDocument } from "../models/meeting";
 import defaultTopics from "../util/default-topics";
-import { ClientSession, Types } from "mongoose";
+import { Types } from "mongoose";
+import { ITopic } from "../models/interfaces/topic";
+import {
+    createTopic,
+    insertTopicAfter,
+    insertTopicAsChild,
+    insertTopicBefore,
+    removeTopicFromAgenda,
+    TopicDocument,
+} from "../models/topic";
+import { InvalidApplicationStateError } from "../util/errors/errors";
 
 export class TopicController {
-    async list(meetingId: Types.ObjectId): Promise<Topic[]> {
+    async list(meetingId: Types.ObjectId): Promise<ITopic[]> {
         const meeting = await Meetings.findById(meetingId);
         if (!meeting) throw new NotFound(`Meeting with id ${meetingId} not found`);
-        return Topics.find({ meeting: meetingId }).lean();
+        return meeting.topics;
     }
 
-    async get(id: Types.ObjectId): Promise<Topic> {
-        const topic = await Topics.findById(id).lean();
-        if (!topic) throw new NotFound(`Topic with id ${id} not found`);
+    async get(id: Types.ObjectId): Promise<ITopic> {
+        const { topic } = await findMeetingWithTopic(id);
         return topic;
     }
 
@@ -23,34 +31,36 @@ export class TopicController {
         parentTopicId?: Types.ObjectId,
         previousTopicId?: Types.ObjectId,
         nextTopicId?: Types.ObjectId,
-    ): Promise<Topic> {
-        const session = await Topics.startSession();
-        await session.startTransaction();
-
-        const meeting = await Meetings.findById(meetingId).lean();
+    ): Promise<ITopic> {
+        const meeting = await Meetings.findById(meetingId);
         if (!meeting) throw new BadRequest(`Meeting with id ${meetingId} not found`);
 
-        let topic: TopicDocument = (await Topics.create([{
-            meeting: meeting._id,
-            name: name,
-        }], { session }))[0];
+        const topicIndex = meeting.topics.push(createTopic({ name }));
+        // Fetch topic from meeting to enable proper change tracking
+        const topic = meeting.topics[topicIndex - 1];
 
         if (parentTopicId !== undefined) {
-            const parentTopic = await Topics.findById(parentTopicId);
-            if (!parentTopic) throw new BadRequest(`Parent topic with id ${parentTopicId} not found`);
-            topic = await topic.insertAsChildOf(parentTopic, { session });
+            const parentTopic = meeting.topics.id(parentTopicId);
+            if (parentTopic === null) throw new BadRequest(`Parent topic with id ${parentTopicId} not found`);
+            insertTopicAsChild(meeting, topic, parentTopic);
         } else if (previousTopicId !== undefined) {
-            const previousTopic = await Topics.findById(previousTopicId);
-            if (!previousTopic) throw new BadRequest(`Previous topic with id ${parentTopicId} not found`);
-            topic = await topic.insertAfter(previousTopic, { session });
+            const previousTopic = meeting.topics.id(previousTopicId);
+            if (previousTopic === null) throw new BadRequest(`Previous topic with id ${parentTopicId} not found`);
+            insertTopicAfter(meeting, topic, previousTopic);
         } else if (nextTopicId !== undefined) {
-            const nextTopic = await Topics.findById(nextTopicId);
-            if (!nextTopic) throw new BadRequest(`Next topic with id ${parentTopicId} not found`);
-            topic = await topic.insertBefore(nextTopic, { session });
+            const nextTopic = meeting.topics.id(nextTopicId);
+            if (nextTopic === null) throw new BadRequest(`Next topic with id ${parentTopicId} not found`);
+            insertTopicBefore(meeting, topic, nextTopic);
         }
 
-        await session.commitTransaction();
-        return topic;
+        const updatedMeeting = await meeting.save();
+        const updatedTopic = updatedMeeting.topics.id(topic._id);
+
+        // If updated topic doesn't exist, although it was just inserted, then something went wrong
+        if (updatedTopic === null)
+            throw new InvalidApplicationStateError();
+
+        return updatedTopic;
     }
 
     async edit(
@@ -59,95 +69,92 @@ export class TopicController {
         parentTopicId?: Types.ObjectId | null,
         previousTopicId?: Types.ObjectId | null,
         nextTopicId?: Types.ObjectId | null,
-    ): Promise<Topic> {
-        const session = await Topics.startSession();
-        await session.startTransaction();
-
-        const topic = await Topics.findById(id).session(session);
-        if (!topic) throw new NotFound(`Topic with id ${id} not found`);
+    ): Promise<ITopic> {
+        const { meeting, topic } = await findMeetingWithTopic(id);
 
         if (name !== undefined)
             topic.name = name;
 
-        const updatedTopic = await this.editTopicOrder(topic, session, parentTopicId, previousTopicId, nextTopicId);
+        this.editTopicOrder(meeting, topic, parentTopicId, previousTopicId, nextTopicId);
 
-        const savedTopic = await updatedTopic.save();
-        await session.commitTransaction();
-        return savedTopic;
+        const updatedMeeting = await meeting.save();
+        const updatedTopic = updatedMeeting.topics.id(id);
+        if (updatedTopic === null)
+            throw new InvalidApplicationStateError();
+        return updatedTopic;
     }
 
-    private async editTopicOrder(
+    private editTopicOrder(
+        meeting: MeetingDocument,
         topic: TopicDocument,
-        session: ClientSession,
         parentTopicId?: Types.ObjectId | null,
         previousTopicId?: Types.ObjectId | null,
         nextTopicId?: Types.ObjectId | null,
-    ): Promise<TopicDocument> {
+    ) {
         if (parentTopicId === undefined && previousTopicId === undefined && nextTopicId === undefined)
             return topic;
 
         // Topic order changed, remove topic from agenda before re-inserting it if necessary
-        const unscheduledTopic = await topic.removeFromAgenda({ session });
+        removeTopicFromAgenda(meeting, topic);
 
         if (parentTopicId === null && previousTopicId === null && nextTopicId === null)
             // Do not re-insert the topic
-            return unscheduledTopic;
+            return;
 
         if (parentTopicId !== undefined)
-            return await this.insertTopic(unscheduledTopic, session, "parent", parentTopicId);
+            return this.insertTopic(meeting, topic, "parent", parentTopicId);
 
         if (previousTopicId !== undefined)
-            return await this.insertTopic(unscheduledTopic, session, "previous", previousTopicId);
+            return this.insertTopic(meeting, topic, "previous", previousTopicId);
 
         if (nextTopicId !== undefined)
-            return await this.insertTopic(unscheduledTopic, session, "next", nextTopicId);
+            return this.insertTopic(meeting, topic, "next", nextTopicId);
 
-        throw new BadRequest("This should never happen, but the linter won't allow me to specify this case correctly");
+        throw new InvalidApplicationStateError(
+            "This should never happen, but the linter won't allow me to specify this case correctly"
+        );
     }
 
-    private async insertTopic(
+    private insertTopic(
+        meeting: MeetingDocument,
         topic: TopicDocument,
-        session: ClientSession,
         insertType: "parent" | "previous" | "next",
         relatedTopicId: Types.ObjectId | null,
-    ): Promise<TopicDocument> {
+    ) {
         if (relatedTopicId === null)
             throw new BadRequest(`The ${insertType} topic has to be a valid object id of another topic. ` +
                 "To remove a topic from the list all three id fields (parent, previous, next) have to be null.");
-        const relatedTopic = await Topics.findById(relatedTopicId);
+        if (topic._id.equals(relatedTopicId))
+            throw new BadRequest(`A topic may not use its own id as ${insertType} reference`);
+        const relatedTopic = meeting.topics.id(relatedTopicId);
         if (!relatedTopic)
             throw new BadRequest(`${insertType} topic with id ${relatedTopicId} not found`);
         switch (insertType) {
             case "parent":
-                return await topic.insertAsChildOf(relatedTopic, { session });
+                return insertTopicAsChild(meeting, topic, relatedTopic);
             case "previous":
-                return await topic.insertAfter(relatedTopic, { session });
+                return insertTopicAfter(meeting, topic, relatedTopic);
             case "next":
-                return await topic.insertBefore(relatedTopic, { session });
+                return insertTopicBefore(meeting, topic, relatedTopic);
         }
     }
 
     async remove(id: Types.ObjectId): Promise<void> {
-        const session = await Topics.startSession();
-        await session.startTransaction();
-
-        const topic = await Topics.findById(id);
-        if (!topic) throw new NotFound(`Topic with id ${id} not found`);
-
-        const removedTopic = await topic.removeFromAgenda({ session });
-        await removedTopic.remove({ session });
-        await session.commitTransaction();
+        const { meeting, topic } = await findMeetingWithTopic(id);
+        removeTopicFromAgenda(meeting, topic);
+        await topic.remove();
+        await meeting.save();
     }
 
-    async createDefaultTopics(meetingId: Types.ObjectId): Promise<Topic[]> {
+    async createDefaultTopics(meetingId: Types.ObjectId): Promise<ITopic[]> {
         let previousTopicId = undefined;
         for (const t of defaultTopics) {
-            const topic: Topic = await this.create(meetingId, t.name, undefined, previousTopicId);
+            const topic: ITopic = await this.create(meetingId, t.name, undefined, previousTopicId);
             previousTopicId = topic._id;
             if (t.subs) {
                 let previousSubTopicId = undefined;
                 for (const sub of t.subs) {
-                    const subTopic: Topic = await this.create(meetingId, sub.name, topic._id, previousSubTopicId);
+                    const subTopic: ITopic = await this.create(meetingId, sub.name, topic._id, previousSubTopicId);
                     previousSubTopicId = subTopic._id;
                 }
             }

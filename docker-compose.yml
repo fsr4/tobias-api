@@ -19,16 +19,8 @@ services:
 
   db:
     image: mongo:bionic
-    command: mongod --replSet rs --bind_ip_all
     volumes:
       - db-data:/data/db
-
-  db_init:
-    image: mongo:bionic
-    # Set up single node replica set to enable support for transactions
-    command: sleep 30 && echo "rs.initiate({_id:'rs',members:[{_id:0,host:\"db:27017\"}]})" | mongo --host db:27017
-    depends_on:
-      - db
 
 volumes:
   db-data:

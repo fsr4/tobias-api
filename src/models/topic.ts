@@ -1,37 +1,17 @@
-import { Document, model, SaveOptions, Schema, Types } from "mongoose";
-import { Meeting } from "./meeting";
-import { Entity } from "./entity";
-import { InvalidDatabaseContentError } from "../util/errors/database-errors";
+import { Schema, Types } from "mongoose";
+import { InvalidDatabaseContentError, InvalidOperationError } from "../util/errors/errors";
+import { ITopic, ITopicDocumentProps } from "./interfaces/topic";
+import { MeetingDocument } from "./meeting";
 
-export type TopicDocument = Topic & Document;
+export type TopicDocument = ITopic & Types.Subdocument;
 
-export interface Topic extends Entity {
-    meeting: Types.ObjectId | Meeting;
-    name: string;
-    parent: Types.ObjectId | Topic | null;
-    previous: Types.ObjectId | Topic | null;
-    next: Types.ObjectId | Topic | null;
-
-    insertAsChildOf(parentTopic: TopicDocument, options: SaveOptions): Promise<TopicDocument>;
-
-    insertAfter(previousTopic: TopicDocument, options: SaveOptions): Promise<TopicDocument>;
-
-    insertBefore(nextTopic: TopicDocument, options: SaveOptions): Promise<TopicDocument>;
-
-    removeFromAgenda(options: SaveOptions): Promise<TopicDocument>;
-}
-
-const topicSchema = new Schema({
-    meeting: {
-        ref: "Meeting",
-        type: Schema.Types.ObjectId,
-        required: true,
-    },
+// eslint-disable-next-line @typescript-eslint/ban-types
+export const TopicSchema = new Schema<ITopic, {}, ITopicDocumentProps>({
     name: {
         type: String,
         required: true,
     },
-    parent: {
+    parentTopic: {
         ref: "Topic",
         type: Schema.Types.ObjectId,
         required: false,
@@ -56,10 +36,24 @@ const topicSchema = new Schema({
     },
 });
 
-topicSchema.methods.insertAsChildOf = async function (parentTopic: TopicDocument, options: SaveOptions) {
-    const topic = this as unknown as TopicDocument;
+export function createTopic(topic: OptionalExceptFor<ITopic, "name">): ITopic {
+    return {
+        _id: topic._id ?? new Types.ObjectId(),
+        name: topic.name,
+        __v: topic.__v ?? 0,
+        parentTopic: topic.parentTopic ?? null,
+        previous: topic.previous ?? null,
+        next: topic.next ?? null,
+    };
+}
 
-    const subTopics = await Topics.find({ parent: parentTopic._id });
+export function insertTopicAsChild(meeting: MeetingDocument, topic: TopicDocument | ITopic, parentTopic: TopicDocument) {
+    if ("parent" in topic && !topic.parent().equals(meeting) || !parentTopic.parent().equals(meeting))
+        throw new InvalidOperationError(
+            `Topics ${topic._id} and ${parentTopic._id} need to be children of meeting ${meeting._id}`
+        );
+
+    const subTopics = meeting.topics.filter(t => t.parentTopic?._id.equals(parentTopic._id));
 
     if (subTopics.length !== 0) {
         // Append topic to existing list of sub topics
@@ -67,102 +61,93 @@ topicSchema.methods.insertAsChildOf = async function (parentTopic: TopicDocument
         if (!lastSubTopic)
             throw new InvalidDatabaseContentError();
         lastSubTopic.next = topic._id;
-        await lastSubTopic.save(options);
         topic.previous = lastSubTopic._id;
     }
 
-    topic.parent = parentTopic._id;
-    return await topic.save(options);
-};
+    topic.parentTopic = parentTopic._id;
+}
 
-topicSchema.methods.insertBefore = async function (nextTopic: TopicDocument, options: SaveOptions) {
-    const topic = this as unknown as TopicDocument;
+export function insertTopicBefore(meeting: MeetingDocument, topic: TopicDocument | ITopic, nextTopic: TopicDocument) {
+    if ("parent" in topic && !topic.parent().equals(meeting) || !nextTopic.parent().equals(meeting))
+        throw new InvalidOperationError(
+            `Topics ${topic._id} and ${nextTopic._id} need to be children of meeting ${meeting._id}`
+        );
 
     if (nextTopic.previous !== null) {
         // If inserted between two topics, update prev and next references accordingly
         topic.previous = nextTopic.previous;
 
-        const previousTopic = await Topics.findById(nextTopic.previous);
+        const previousTopic = meeting.topics.id(nextTopic.previous);
         if (previousTopic === null)
             throw new InvalidDatabaseContentError();
 
         previousTopic.next = topic._id;
-        await previousTopic.save(options);
     }
 
-    if (nextTopic.parent !== null)
-        topic.parent = nextTopic.parent;
+    if (nextTopic.parentTopic !== null)
+        topic.parentTopic = nextTopic.parentTopic;
 
     nextTopic.previous = topic._id;
-    await nextTopic.save(options);
 
     topic.next = nextTopic._id;
-    return await topic.save(options);
-};
+}
 
-topicSchema.methods.insertAfter = async function (previousTopic: TopicDocument, options: SaveOptions) {
-    const topic = this as unknown as TopicDocument;
+export function insertTopicAfter(meeting: MeetingDocument, topic: TopicDocument | ITopic, previousTopic: TopicDocument) {
+    if ("parent" in topic && !topic.parent().equals(meeting) || !previousTopic.parent().equals(meeting))
+        throw new InvalidOperationError(
+            `Topics ${topic._id} and ${previousTopic._id} need to be children of meeting ${meeting._id}`
+        );
 
     if (previousTopic.next !== null) {
         // If inserted between two topics, update prev and next references accordingly
         topic.next = previousTopic.next;
 
-        const nextTopic = await Topics.findById(previousTopic.next);
+        const nextTopic = meeting.topics.id(previousTopic.next);
         if (nextTopic === null)
             throw new InvalidDatabaseContentError();
 
         nextTopic.previous = topic._id;
-        await nextTopic.save(options);
     }
 
-    if (previousTopic.parent !== null)
-        topic.parent = previousTopic.parent;
+    if (previousTopic.parentTopic !== null)
+        topic.parentTopic = previousTopic.parentTopic;
 
     previousTopic.next = topic._id;
-    await previousTopic.save(options);
 
     topic.previous = previousTopic._id;
-    return await topic.save(options);
-};
+}
 
-topicSchema.methods.removeFromAgenda = async function (options: SaveOptions) {
-    const topic = this as unknown as TopicDocument;
+export function removeTopicFromAgenda(meeting: MeetingDocument, topic: TopicDocument | ITopic) {
+    if ("parent" in topic && !topic.parent().equals(meeting))
+        throw new InvalidOperationError(`Topic ${topic._id} needs to be a child of meeting ${meeting._id}`);
 
-    topic.parent = null;
+    topic.parentTopic = null;
 
     if (topic.previous !== null && topic.next !== null) {
         // Topic is between two other topics
-        const previousTopic = await Topics.findById(topic.previous);
-        const nextTopic = await Topics.findById(topic.next);
+        const previousTopic = meeting.topics.id(topic.previous);
+        const nextTopic = meeting.topics.id(topic.next);
         if (!previousTopic || !nextTopic)
             throw new InvalidDatabaseContentError();
         // Connect previous topic and next topic directly
         previousTopic.next = nextTopic._id;
         nextTopic.previous = previousTopic._id;
-        await previousTopic.save(options);
-        await nextTopic.save(options);
     } else if (topic.previous !== null) {
         // Topic is last in list, remove "next" reference from previous topic
-        const previousTopic = await Topics.findById(topic.previous);
+        const previousTopic = meeting.topics.id(topic.previous);
         if (!previousTopic)
             throw new InvalidDatabaseContentError();
         previousTopic.next = null;
-        await previousTopic.save(options);
     } else if (topic.next !== null) {
         // Topic is first in list, remove "previous" reference from next topic
-        const nextTopic = await Topics.findById(topic.next);
+        const nextTopic = meeting.topics.id(topic.next);
         if (!nextTopic)
             throw new InvalidDatabaseContentError();
         nextTopic.previous = null;
-        const updated = await nextTopic.save(options);
-        console.log(updated);
     }
 
     topic.previous = null;
     topic.next = null;
-    return await topic.save(options);
-};
 
-const Topics = model<Topic>("Topic", topicSchema);
-
-export default Topics;
+    return topic;
+}

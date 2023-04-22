@@ -1,16 +1,16 @@
-import { Topic } from "../models/topic";
-import { InvalidDatabaseContentError } from "../util/errors/database-errors";
+import { ITopic } from "../models/interfaces/topic";
+import { InvalidDatabaseContentError } from "../util/errors/errors";
 import sortTopics from "../util/sort-topics";
 import { Types } from "mongoose";
 
-export function generateTopicList(topics: Topic[]): string {
+export function generateTopicList(topics: ITopic[]): string {
     const mainTopics = getOrderedMainTopics(topics);
     const topicList = mainTopics.reduce((list, topic) =>
         list + generateSubTopicList(topics, topic), "<ol>");
     return topicList + "</ol>";
 }
 
-function generateSubTopicList(topics: Topic[], parentTopic: Topic): string {
+function generateSubTopicList(topics: ITopic[], parentTopic: ITopic): string {
     const subTopics = getOrderedSubTopics(topics, parentTopic);
     if (subTopics.length === 0)
         return `<li>${parentTopic.name}</li>`;
@@ -20,16 +20,16 @@ function generateSubTopicList(topics: Topic[], parentTopic: Topic): string {
     return subTopicList + "</ol></li>";
 }
 
-function getOrderedMainTopics(topics: Topic[]): Topic[] {
-    const mainTopics = topics.filter(t => t.parent === null && (t.next || t.previous));
+function getOrderedMainTopics(topics: ITopic[]): ITopic[] {
+    const mainTopics = topics.filter(t => t.parentTopic === null && (t.next || t.previous));
     if (mainTopics.length === 0) return [];
     const firstTopic = mainTopics.find(t => t.previous === null);
     if (!firstTopic) throw new InvalidDatabaseContentError();
     return sortTopics(firstTopic, mainTopics);
 }
 
-function getOrderedSubTopics(topics: Topic[], parent: Topic): Topic[] {
-    const subTopics = topics.filter(t => t.parent && (t.parent as Types.ObjectId).equals(parent._id));
+function getOrderedSubTopics(topics: ITopic[], parent: ITopic): ITopic[] {
+    const subTopics = topics.filter(t => t.parentTopic && (t.parentTopic as Types.ObjectId).equals(parent._id));
     if (subTopics.length === 0) return [];
     const firstTopic = subTopics.find(t => t.previous === null);
     if (!firstTopic) throw new InvalidDatabaseContentError();
